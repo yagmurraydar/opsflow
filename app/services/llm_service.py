@@ -5,6 +5,7 @@ import logging
 import ollama
 
 from app.tools.project_tools import get_project_info
+from app.rag.knowledge_tool import search_knowledge_base
 
 MODEL_NAME = "qwen3:0.6b"
 MAX_TOOL_CALLS = 3
@@ -15,89 +16,131 @@ SYSTEM_PROMPT = """
 Sen Agentic DevOps Platform projesinin AI asistanısın.
 Türkçe, açık ve anlaşılır cevap ver.
 Proje hakkında güncel bilgi gerektiğinde get_project_info aracını kullan.
-Araçtan gelen bilgileri esas al; bilmediğin bilgileri uydurma.
+Teknik sorularda verilen RAG kanıtlarına dayan.
+Kanıtlarda bulunmayan bilgileri uydurma.
+Yanıtında kullandığın kaynak dosyasının adını belirt.
+Yanıtını gereksiz ayrıntıya girmeden ver.
 """
 
-
-# Agent'ın kullanmasına izin verilen araçlar.
 TOOL_REGISTRY = {
     "get_project_info": get_project_info,
 }
 
+TECHNICAL_KEYWORDS = (
+    "kubernetes", "kubectl", "pod", "crashloopbackoff",
+    "docker", "container", "devops", "deployment",
+    "runbook", "log", "hata", "linux", "pipeline",
+    "ci/cd", "aws", "postgres", "veritabanı",
+    "teknik doküman", "servis",
+)
+
+
+def requires_rag(message: str) -> bool:
+    text = message.casefold()
+    return any(keyword in text for keyword in TECHNICAL_KEYWORDS)
+
 
 def generate_response(message: str) -> str:
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": message},
-    ]
-
-    tool_call_count = 0
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     try:
+        if requires_rag(message):
+            logger.info("RAG araması başlıyor.")
+
+            try:
+                evidence = search_knowledge_base(message)
+            except Exception:
+                logger.exception("RAG araması başarısız oldu.")
+                return (
+                    "Teknik bilgi tabanına şu anda erişemiyorum. "
+                    "Lütfen PostgreSQL bağlantısını ve RAG aramasını kontrol edin."
+                )
+
+            logger.info("RAG araması tamamlandı.")
+
+
+            if not evidence or "İlgili teknik doküman bulunamadı." in evidence:
+               return "Teknik dokümanlarda ilgili kanıt bulunamadı."
+
+            logger.info("RAG kanıtları bulundu; kaynaklı yanıt döndürülüyor.")
+
+            return (
+                "Teknik dokümanlardan bulunan kanıtlar:\n\n"
+                 + evidence
+)
+            
+            messages.append({
+                "role": "system",
+                "content": (
+                    "Aşağıdaki metin teknik bilgi tabanından getirilmiştir. "
+                    "Yalnızca ilgili kanıtlara dayan. "
+                    "Komutları ve kaynak adını doğru aktar. "
+                    "Kanıtta bulunmayan bilgileri uydurma.\n\n"
+                    + evidence
+                ),
+            })
+
+        messages.append({"role": "user", "content": message})
+
+        tool_call_count = 0
+
         while True:
+            logger.info("Ollama yanıtı bekleniyor.")
+
             response = ollama.chat(
                 model=MODEL_NAME,
                 messages=messages,
                 tools=[get_project_info],
+                options={
+                    "num_predict": 180,
+                    "temperature": 0.2,
+                },
             )
+
+            logger.info("Ollama yanıtı alındı.")
 
             assistant_message = response.message
             messages.append(assistant_message)
 
             tool_calls = assistant_message.tool_calls or []
 
-            # Model araç çağrısı üretmediyse yanıtı döndür.
             if not tool_calls:
-                return assistant_message.content or "Yanıt üretilemedi."
+                answer = assistant_message.content
+                return answer or "Model boş yanıt üretti."
 
-            # Sınırsız araç çağrısını önle.
             if tool_call_count + len(tool_calls) > MAX_TOOL_CALLS:
                 return "Güvenlik sınırı nedeniyle araç çağrısı durduruldu."
 
             for tool_call in tool_calls:
-                tool_name = tool_call.function.name
-                logger.info("Agent araç çağırdı: %s", tool_name)
+                name = tool_call.function.name
                 arguments = tool_call.function.arguments or {}
 
-                # Yalnızca kayıtlı araçlara izin ver.
-                tool_function = TOOL_REGISTRY.get(tool_name)
+                logger.info("Agent araç çağırdı: %s", name)
 
-                if tool_function is None:
-                    tool_result = {
-                        "error": f"İzin verilmeyen araç: {tool_name}"
-                    }
+                function = TOOL_REGISTRY.get(name)
+
+                if function is None:
+                    result = {"error": f"İzin verilmeyen araç: {name}"}
                 elif arguments:
-                    # get_project_info parametre kabul etmez.
-                    tool_result = {
-                        "error": "Bu araç parametre kabul etmiyor."
-                    }
+                    result = {"error": "Bu araç parametre kabul etmiyor."}
                 else:
                     try:
-                        tool_result = tool_function()
+                        result = function()
                     except Exception:
-                        logger.exception("Araç çalıştırılırken hata oluştu.")
-                        tool_result = {
-                            "error": "Araç çalıştırılamadı."
-                        }
+                        logger.exception("Proje bilgisi aracı başarısız oldu.")
+                        result = {"error": "Proje bilgisi alınamadı."}
 
                 tool_call_count += 1
 
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_name": tool_name,
-                        "content": json.dumps(
-                            tool_result,
-                            ensure_ascii=False,
-                        ),
-                    }
-                )
+                messages.append({
+                    "role": "tool",
+                    "tool_name": name,
+                    "content": json.dumps(result, ensure_ascii=False),
+                })
 
     except ollama.ResponseError:
         logger.exception("Ollama model yanıt hatası.")
         raise
-
     except Exception:
         logger.exception("Agent çalışırken beklenmeyen hata oluştu.")
         raise
-
