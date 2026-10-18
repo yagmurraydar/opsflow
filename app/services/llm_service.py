@@ -9,10 +9,12 @@ from app.rag.knowledge_tool import search_knowledge_base
 from app.tools.kubernetes_tools import get_pods, get_events, get_pod_logs
 from app.tools.cicd_tools import analyze_workflow_run
 
+
 MODEL_NAME = "qwen3:0.6b"
 MAX_TOOL_CALLS = 3
 
 logger = logging.getLogger(__name__)
+
 
 SYSTEM_PROMPT = """
 Sen Agentic DevOps Platform projesinin AI asistanısın.
@@ -24,13 +26,16 @@ Yanıtında kullandığın kaynak dosyasının adını belirt.
 Yanıtını gereksiz ayrıntıya girmeden ver.
 """
 
+
 TOOL_REGISTRY = {
     "get_project_info": get_project_info,
     "get_pods": get_pods,
     "get_events": get_events,
     "get_pod_logs": get_pod_logs,
     "analyze_workflow_run": analyze_workflow_run,
+    "search_knowledge_base": search_knowledge_base,
 }
+
 
 TOOL_SCHEMAS = [
     {
@@ -46,16 +51,40 @@ TOOL_SCHEMAS = [
         },
     },
     {
+    "type": "function",
+    "function": {
+        "name": "search_knowledge_base",
+        "description": (
+            "Teknik runbook ve dokümanlarda arama yapar; "
+            "ilgili kanıtları ve kaynakları getirir."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Teknik dokümanlarda aranacak soru.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+},
+    {
         "type": "function",
         "function": {
             "name": "get_pods",
-            "description": "Belirtilen Kubernetes namespace içindeki pod listesini okur.",
+            "description": (
+                "Belirtilen Kubernetes namespace içindeki pod listesini okur."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "namespace": {
                         "type": "string",
-                        "description": "Kubernetes namespace adı. Varsayılan: default.",
+                        "description": (
+                            "Kubernetes namespace adı. Varsayılan: default."
+                        ),
                     },
                 },
                 "required": [],
@@ -66,13 +95,17 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "get_events",
-            "description": "Belirtilen Kubernetes namespace içindeki olayları okur.",
+            "description": (
+                "Belirtilen Kubernetes namespace içindeki olayları okur."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "namespace": {
                         "type": "string",
-                        "description": "Kubernetes namespace adı. Varsayılan: default.",
+                        "description": (
+                            "Kubernetes namespace adı. Varsayılan: default."
+                        ),
                     },
                 },
                 "required": [],
@@ -83,7 +116,10 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "get_pod_logs",
-            "description": "Bir Kubernetes podunun son loglarını okur; pod içinde komut çalıştırmaz.",
+            "description": (
+                "Bir Kubernetes podunun son loglarını okur; "
+                "pod içinde komut çalıştırmaz."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -93,74 +129,81 @@ TOOL_SCHEMAS = [
                     },
                     "namespace": {
                         "type": "string",
-                        "description": "Kubernetes namespace adı. Varsayılan: default.",
+                        "description": (
+                            "Kubernetes namespace adı. Varsayılan: default."
+                        ),
                     },
                     "tail": {
                         "type": "integer",
-                        "description": "Okunacak son log satırı sayısı; 1-500 arası.",
+                        "description": (
+                            "Okunacak son log satırı sayısı; 1-500 arası."
+                        ),
                     },
                 },
                 "required": ["pod_name"],
             },
         },
     },
-    
     {
-    "type": "function",
-    "function": {
-        "name": "analyze_workflow_run",
-        "description": (
-            "CI/CD workflow durumunu analiz eder. "
-            "Pipeline sonucu, başarısız adım ve hata mesajını değerlendirir. "
-            "Gerçek CI/CD sisteminde değişiklik yapmaz."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "enum": ["queued", "in_progress", "completed"],
-                    "description": "Workflow durumudur.",
+        "type": "function",
+        "function": {
+            "name": "analyze_workflow_run",
+            "description": (
+                "CI/CD workflow durumunu analiz eder. "
+                "Pipeline sonucunu, başarısız adımı ve hata mesajını "
+                "değerlendirir. Gerçek CI/CD sisteminde değişiklik yapmaz."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["queued", "in_progress", "completed"],
+                        "description": "Workflow durumudur.",
+                    },
+                    "conclusion": {
+                        "type": ["string", "null"],
+                        "enum": [
+                            "success",
+                            "failure",
+                            "cancelled",
+                            "timed_out",
+                            "action_required",
+                            "skipped",
+                            "neutral",
+                            None,
+                        ],
+                        "description": (
+                            "Workflow tamamlandıysa sonucu; "
+                            "henüz tamamlanmadıysa null."
+                        ),
+                    },
+                    "failed_step": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "Başarısız olan adımın adı, biliniyorsa."
+                        ),
+                    },
+                    "error_message": {
+                        "type": ["string", "null"],
+                        "description": "Hata mesajı, biliniyorsa.",
+                    },
                 },
-                "conclusion": {
-                    "type": ["string", "null"],
-                    "enum": [
-                        "success",
-                        "failure",
-                        "cancelled",
-                        "timed_out",
-                        "action_required",
-                        "skipped",
-                        "neutral",
-                        None,
-                    ],
-                    "description": (
-                        "Workflow tamamlandıysa sonucu; "
-                        "henüz tamamlanmadıysa null."
-                    ),
-                },
-                "failed_step": {
-                    "type": ["string", "null"],
-                    "description": "Başarısız olan adımın adı, biliniyorsa.",
-                },
-                "error_message": {
-                    "type": ["string", "null"],
-                    "description": "Hata mesajı, biliniyorsa.",
-                },
+                "required": ["status", "conclusion"],
             },
-            "required": ["status", "conclusion"],
         },
     },
-},
-    
 ]
 
 
 def execute_tool(name: str, arguments: dict) -> dict:
-    """Run only registered tools with explicitly allowed arguments."""
+    """Yalnızca kayıtlı araçları ve izin verilen parametreleri çalıştırır."""
 
     if name not in TOOL_REGISTRY:
-        return {"ok": False, "error": f"İzin verilmeyen araç: {name}"}
+        return {
+            "ok": False,
+            "error": f"İzin verilmeyen araç: {name}",
+        }
 
     if not isinstance(arguments, dict):
         return {
@@ -173,11 +216,13 @@ def execute_tool(name: str, arguments: dict) -> dict:
         "get_pods": {"namespace"},
         "get_events": {"namespace"},
         "get_pod_logs": {"pod_name", "namespace", "tail"},
+        "search_knowledge_base": {"query"},
         "analyze_workflow_run": {
             "status",
             "conclusion",
             "failed_step",
             "error_message",
+            
         },
     }
 
@@ -202,33 +247,80 @@ def execute_tool(name: str, arguments: dict) -> dict:
                 "ok": False,
                 "error": "pod_name parametresi gerekli.",
             }
+
         return get_pod_logs(**arguments)
 
+        if name == "search_knowledge_base":
+            query = arguments.get("query", "")
+            if not isinstance(query, str) or not query.strip():
+                return {
+                    "ok": False,
+                    "error": "query parametresi gerekli.",
+                }
+
+            return {
+                "ok": True,
+                "evidence": search_knowledge_base(query),
+            }
+
+        if name == "analyze_workflow_run":
+            return analyze_workflow_run(**arguments)
+
+        return {
+            "ok": False,
+            "error": "Araç desteklenmiyor.",
+        }
     if name == "analyze_workflow_run":
         return analyze_workflow_run(**arguments)
 
-    return {"ok": False, "error": "Araç desteklenmiyor."}
-
+    return {
+        "ok": False,
+        "error": "Araç desteklenmiyor.",
+    }
 
 
 TECHNICAL_KEYWORDS = (
-    "kubernetes", "kubectl", "pod", "crashloopbackoff",
-    "docker", "container", "devops", "deployment",
-    "runbook", "log", "hata", "linux", "pipeline",
-    "ci/cd", "aws", "postgres", "veritabanı",
-    "teknik doküman", "servis",
+    "kubernetes",
+    "kubectl",
+    "pod",
+    "crashloopbackoff",
+    "docker",
+    "container",
+    "devops",
+    "deployment",
+    "runbook",
+    "log",
+    "hata",
+    "linux",
+    "pipeline",
+    "ci/cd",
+    "aws",
+    "postgres",
+    "veritabanı",
+    "teknik doküman",
+    "servis",
 )
 
 
 def requires_rag(message: str) -> bool:
+    """Mesajın teknik bilgi tabanında aranması gerekip gerekmediğini belirler."""
+
     text = message.casefold()
     return any(keyword in text for keyword in TECHNICAL_KEYWORDS)
 
 
 def generate_response(message: str) -> str:
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    """Gerekirse RAG kanıtı alır, sonra LLM ve izinli araçları kullanır."""
+
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        }
+    ]
 
     try:
+        # 1. Teknik sorular için bilgi tabanında arama yap.
         if requires_rag(message):
             logger.info("RAG araması başlıyor.")
 
@@ -243,60 +335,78 @@ def generate_response(message: str) -> str:
 
             logger.info("RAG araması tamamlandı.")
 
+            # Bilgi tabanında kanıt yoksa tahmin ederek cevap verme.
+            if (
+                not evidence
+                or "İlgili teknik doküman bulunamadı." in evidence
+            ):
+                return "Teknik dokümanlarda ilgili kanıt bulunamadı."
 
-            if not evidence or "İlgili teknik doküman bulunamadı." in evidence:
-               return "Teknik dokümanlarda ilgili kanıt bulunamadı."
+            # Kanıtı modele bağlam olarak yalnızca bir kez ekle.
+            messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Aşağıdaki metin teknik bilgi tabanından getirilmiştir. "
+                        "Yanıtını bu kanıtlara dayandır. "
+                        "Komutları ve kaynak adlarını doğru aktar. "
+                        "Kanıtta bulunmayan bilgileri uydurma. "
+                        "Yanıtında kullandığın kaynakları belirt.\n\n"
+                        + evidence
+                    ),
+                }
+            )
 
-            logger.info("RAG kanıtları bulundu; kaynaklı yanıt döndürülüyor.")
+            logger.info("RAG kanıtları LLM bağlamına eklendi.")
 
-            return (
-                "Teknik dokümanlardan bulunan kanıtlar:\n\n"
-                 + evidence
-)
-            
-            messages.append({
-                "role": "system",
-                "content": (
-                    "Aşağıdaki metin teknik bilgi tabanından getirilmiştir. "
-                    "Yalnızca ilgili kanıtlara dayan. "
-                    "Komutları ve kaynak adını doğru aktar. "
-                    "Kanıtta bulunmayan bilgileri uydurma.\n\n"
-                    + evidence
-                ),
-            })
-
-        messages.append({"role": "user", "content": message})
+        # 2. Kullanıcının asıl mesajını konuşmaya ekle.
+        messages.append(
+            {
+                "role": "user",
+                "content": message,
+            }
+        )
 
         tool_call_count = 0
 
+        # 3. Model cevap verene veya araç çağrıları sınırına ulaşana kadar devam et.
         while True:
             logger.info("Ollama yanıtı bekleniyor.")
 
             response = ollama.chat(
-                model=MODEL_NAME,
-                messages=messages,
-                tools=TOOL_SCHEMAS,
-                options={
-                    "num_predict": 180,
-                    "temperature": 0.2,
-                },
-            )
-
+              model=MODEL_NAME,
+              messages=messages,
+              tools=TOOL_SCHEMAS,
+              think=False,
+              options={
+                   "num_predict": 180,
+                   "temperature": 0.2,
+    },
+)
             logger.info("Ollama yanıtı alındı.")
 
             assistant_message = response.message
             messages.append(assistant_message)
 
             tool_calls = assistant_message.tool_calls or []
-
+            print("DEBUG tool_calls:", tool_calls, flush=True)
+            print("DEBUG content:", repr(assistant_message.content), flush=True) 
+            
+            logger.info(
+               "Model yanıtı: tool_calls=%s, content=%r",
+                len(tool_calls),
+                assistant_message.content,
+)
+            # Araç çağrısı yoksa modelin son cevabını döndür.
             if not tool_calls:
                 answer = assistant_message.content
                 return answer or "Model boş yanıt üretti."
 
+            # Araç çağrılarının toplam sayısını sınırla.
             if tool_call_count + len(tool_calls) > MAX_TOOL_CALLS:
                 return "Güvenlik sınırı nedeniyle araç çağrısı durduruldu."
 
-            
+            # İstenen araçları izin kontrolünden geçirerek çalıştır.
             for tool_call in tool_calls:
                 name = tool_call.function.name
                 arguments = tool_call.function.arguments or {}
@@ -314,16 +424,21 @@ def generate_response(message: str) -> str:
 
                 tool_call_count += 1
 
-                messages.append({
-                    "role": "tool",
-                    "tool_name": name,
-                    "content": json.dumps(result, ensure_ascii=False),
-                })
-
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_name": name,
+                        "content": json.dumps(
+                            result,
+                            ensure_ascii=False,
+                        ),
+                    }
+                )
 
     except ollama.ResponseError:
         logger.exception("Ollama model yanıt hatası.")
         raise
+
     except Exception:
         logger.exception("Agent çalışırken beklenmeyen hata oluştu.")
         raise
