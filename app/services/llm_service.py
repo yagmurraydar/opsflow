@@ -196,6 +196,7 @@ TOOL_SCHEMAS = [
 ]
 
 
+
 def execute_tool(name: str, arguments: dict) -> dict:
     """Yalnızca kayıtlı araçları ve izin verilen parametreleri çalıştırır."""
 
@@ -222,7 +223,6 @@ def execute_tool(name: str, arguments: dict) -> dict:
             "conclusion",
             "failed_step",
             "error_message",
-            
         },
     }
 
@@ -250,26 +250,20 @@ def execute_tool(name: str, arguments: dict) -> dict:
 
         return get_pod_logs(**arguments)
 
-        if name == "search_knowledge_base":
-            query = arguments.get("query", "")
-            if not isinstance(query, str) or not query.strip():
-                return {
-                    "ok": False,
-                    "error": "query parametresi gerekli.",
-                }
+    if name == "search_knowledge_base":
+        query = arguments.get("query", "")
 
+        if not isinstance(query, str) or not query.strip():
             return {
-                "ok": True,
-                "evidence": search_knowledge_base(query),
+                "ok": False,
+                "error": "query parametresi gerekli.",
             }
 
-        if name == "analyze_workflow_run":
-            return analyze_workflow_run(**arguments)
-
         return {
-            "ok": False,
-            "error": "Araç desteklenmiyor.",
+            "ok": True,
+            "evidence": search_knowledge_base(query),
         }
+
     if name == "analyze_workflow_run":
         return analyze_workflow_run(**arguments)
 
@@ -318,7 +312,7 @@ def generate_response(message: str) -> str:
             "content": SYSTEM_PROMPT,
         }
     ]
-
+    rag_sources = []
     try:
         # 1. Teknik sorular için bilgi tabanında arama yap.
         if requires_rag(message):
@@ -334,7 +328,13 @@ def generate_response(message: str) -> str:
                 )
 
             logger.info("RAG araması tamamlandı.")
-
+            rag_sources = list(
+                dict.fromkeys(
+                    line.removeprefix("Kaynak: ").strip()
+                    for line in evidence.splitlines()
+                    if line.startswith("Kaynak: ")
+                )
+            )
             # Bilgi tabanında kanıt yoksa tahmin ederek cevap verme.
             if (
                 not evidence
@@ -372,14 +372,21 @@ def generate_response(message: str) -> str:
         # 3. Model cevap verene veya araç çağrıları sınırına ulaşana kadar devam et.
         while True:
             logger.info("Ollama yanıtı bekleniyor.")
-
+            available_tools = [
+                tool
+                for tool in TOOL_SCHEMAS
+                if not (
+                    requires_rag(message)
+                    and tool["function"]["name"] == "search_knowledge_base"
+                )
+            ]
             response = ollama.chat(
               model=MODEL_NAME,
               messages=messages,
-              tools=TOOL_SCHEMAS,
+              tools=available_tools,
               think=False,
               options={
-                   "num_predict": 180,
+                   "num_predict": 350,
                    "temperature": 0.2,
     },
 )
@@ -389,8 +396,7 @@ def generate_response(message: str) -> str:
             messages.append(assistant_message)
 
             tool_calls = assistant_message.tool_calls or []
-            print("DEBUG tool_calls:", tool_calls, flush=True)
-            print("DEBUG content:", repr(assistant_message.content), flush=True) 
+            
             
             logger.info(
                "Model yanıtı: tool_calls=%s, content=%r",
@@ -399,8 +405,18 @@ def generate_response(message: str) -> str:
 )
             # Araç çağrısı yoksa modelin son cevabını döndür.
             if not tool_calls:
-                answer = assistant_message.content
-                return answer or "Model boş yanıt üretti."
+                answer = assistant_message.content or "Model boş yanıt üretti."
+
+                missing_sources = [
+                    source
+                    for source in rag_sources
+                    if source not in answer
+                ]
+
+                if missing_sources:
+                    answer += "\n\nKaynak: " + ", ".join(missing_sources)
+
+                return answer
 
             # Araç çağrılarının toplam sayısını sınırla.
             if tool_call_count + len(tool_calls) > MAX_TOOL_CALLS:
