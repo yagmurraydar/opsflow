@@ -347,11 +347,17 @@ def generate_response(message: str) -> str:
                 {
                     "role": "system",
                     "content": (
-                        "Aşağıdaki metin teknik bilgi tabanından getirilmiştir. "
-                        "Yanıtını bu kanıtlara dayandır. "
-                        "Komutları ve kaynak adlarını doğru aktar. "
-                        "Kanıtta bulunmayan bilgileri uydurma. "
-                        "Yanıtında kullandığın kaynakları belirt.\n\n"
+                        "Aşağıdaki metin teknik bilgi tabanından alınan kanıtlardır. "
+                        "Yalnızca bu kanıtlarda açıkça bulunan bilgilere dayanarak cevap ver. "
+                        "Kanıtta bulunmayan komut, parametre veya teşhis adımı üretme. "
+                        "Bir kontrol adımı için dokümanda komut yoksa yeni komut uydurmak yerine "
+                        "komutun dokümanda belirtilmediğini söyle. "
+                        "Her komutun amacını kanıta uygun açıkla. "
+                        "Aynı komutu gereksiz yere tekrarlama. "
+                        "Yanıtın Türkçe olsun ve kaynak dosyasının adını belirt."
+                        "Dokümanda açıkça yer almayan hiçbir kubectl komutunu yanıta ekleme. "
+                        "Bir sorunun cevabı dokümanda yoksa bunu açıkça belirt. "
+                        "Genel Kubernetes bilginle dokümandaki eksik adımları tamamlama.\n\n"
                         + evidence
                     ),
                 }
