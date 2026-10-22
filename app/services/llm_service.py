@@ -1,4 +1,3 @@
-
 import json
 import logging
 
@@ -51,25 +50,25 @@ TOOL_SCHEMAS = [
         },
     },
     {
-    "type": "function",
-    "function": {
-        "name": "search_knowledge_base",
-        "description": (
-            "Teknik runbook ve dokümanlarda arama yapar; "
-            "ilgili kanıtları ve kaynakları getirir."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Teknik dokümanlarda aranacak soru.",
+        "type": "function",
+        "function": {
+            "name": "search_knowledge_base",
+            "description": (
+                "Teknik runbook ve dokümanlarda arama yapar; "
+                "ilgili kanıtları ve kaynakları getirir."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Teknik dokümanlarda aranacak soru.",
+                    },
                 },
+                "required": ["query"],
             },
-            "required": ["query"],
         },
     },
-},
     {
         "type": "function",
         "function": {
@@ -196,7 +195,6 @@ TOOL_SCHEMAS = [
 ]
 
 
-
 def execute_tool(name: str, arguments: dict) -> dict:
     """Yalnızca kayıtlı araçları ve izin verilen parametreleri çalıştırır."""
 
@@ -246,6 +244,20 @@ def execute_tool(name: str, arguments: dict) -> dict:
             return {
                 "ok": False,
                 "error": "pod_name parametresi gerekli.",
+            }
+
+        tail = arguments.get("tail", 100)
+
+        if not isinstance(tail, int) or isinstance(tail, bool):
+            return {
+                "ok": False,
+                "error": "tail parametresi bir tam sayı olmalıdır.",
+            }
+
+        if tail < 1 or tail > 500:
+            return {
+                "ok": False,
+                "error": "tail parametresi 1 ile 500 arasında olmalıdır.",
             }
 
         return get_pod_logs(**arguments)
@@ -312,7 +324,9 @@ def generate_response(message: str) -> str:
             "content": SYSTEM_PROMPT,
         }
     ]
+
     rag_sources = []
+
     try:
         # 1. Teknik sorular için bilgi tabanında arama yap.
         if requires_rag(message):
@@ -328,6 +342,7 @@ def generate_response(message: str) -> str:
                 )
 
             logger.info("RAG araması tamamlandı.")
+
             rag_sources = list(
                 dict.fromkeys(
                     line.removeprefix("Kaynak: ").strip()
@@ -335,6 +350,7 @@ def generate_response(message: str) -> str:
                     if line.startswith("Kaynak: ")
                 )
             )
+
             # Bilgi tabanında kanıt yoksa tahmin ederek cevap verme.
             if (
                 not evidence
@@ -378,6 +394,7 @@ def generate_response(message: str) -> str:
         # 3. Model cevap verene veya araç çağrıları sınırına ulaşana kadar devam et.
         while True:
             logger.info("Ollama yanıtı bekleniyor.")
+
             available_tools = [
                 tool
                 for tool in TOOL_SCHEMAS
@@ -386,32 +403,36 @@ def generate_response(message: str) -> str:
                     and tool["function"]["name"] == "search_knowledge_base"
                 )
             ]
+
             response = ollama.chat(
-              model=MODEL_NAME,
-              messages=messages,
-              tools=available_tools,
-              think=False,
-              options={
-                   "num_predict": 350,
-                   "temperature": 0.2,
-    },
-)
+                model=MODEL_NAME,
+                messages=messages,
+                tools=available_tools,
+                think=False,
+                options={
+                    "num_predict": 350,
+                    "temperature": 0.2,
+                },
+            )
+
             logger.info("Ollama yanıtı alındı.")
 
             assistant_message = response.message
             messages.append(assistant_message)
 
             tool_calls = assistant_message.tool_calls or []
-            
-            
+
             logger.info(
-               "Model yanıtı: tool_calls=%s, content=%r",
+                "Model yanıtı: tool_calls=%s, content=%r",
                 len(tool_calls),
                 assistant_message.content,
-)
+            )
+
             # Araç çağrısı yoksa modelin son cevabını döndür.
             if not tool_calls:
-                answer = assistant_message.content or "Model boş yanıt üretti."
+                answer = (
+                    assistant_message.content or "Model boş yanıt üretti."
+                )
 
                 missing_sources = [
                     source

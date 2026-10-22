@@ -107,3 +107,25 @@ def test_execute_tool_analyze_workflow_run_rejects_invalid_status():
     )
 
     assert result["ok"] is False
+
+
+@patch("app.services.llm_service.get_pod_logs")
+def test_execute_tool_rejects_tail_below_minimum(mock_get_logs):
+    result = execute_tool(
+        "get_pod_logs",
+        {"pod_name": "web-pod", "tail": 0},
+    )
+
+    assert result["ok"] is False
+    mock_get_logs.assert_not_called()
+
+
+@patch("app.services.llm_service.get_pod_logs")
+def test_execute_tool_rejects_tail_above_maximum(mock_get_logs):
+    result = execute_tool(
+        "get_pod_logs",
+        {"pod_name": "web-pod", "tail": 501},
+    )
+
+    assert result["ok"] is False
+    mock_get_logs.assert_not_called()
