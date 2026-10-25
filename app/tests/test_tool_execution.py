@@ -129,3 +129,63 @@ def test_execute_tool_rejects_tail_above_maximum(mock_get_logs):
 
     assert result["ok"] is False
     mock_get_logs.assert_not_called()
+@patch("app.services.llm_service.get_pod_logs")
+def test_execute_tool_rejects_boolean_tail(mock_get_logs):
+    result = execute_tool(
+        "get_pod_logs",
+        {"pod_name": "web-pod", "tail": True},
+    )
+
+    assert result["ok"] is False
+    mock_get_logs.assert_not_called()
+
+@patch("app.services.llm_service.get_pod_logs")
+def test_execute_tool_accepts_tail_minimum(mock_get_logs):
+    mock_get_logs.return_value = {"ok": True, "data": "log"}
+
+    result = execute_tool(
+        "get_pod_logs",
+        {"pod_name": "web-pod", "tail": 1},
+    )
+
+    assert result == {"ok": True, "data": "log"}
+    mock_get_logs.assert_called_once_with(
+        pod_name="web-pod",
+        tail=1,
+    )
+
+
+@patch("app.services.llm_service.get_pod_logs")
+def test_execute_tool_accepts_tail_maximum(mock_get_logs):
+    mock_get_logs.return_value = {"ok": True, "data": "log"}
+
+    result = execute_tool(
+        "get_pod_logs",
+        {"pod_name": "web-pod", "tail": 500},
+    )
+
+    assert result == {"ok": True, "data": "log"}
+    mock_get_logs.assert_called_once_with(
+        pod_name="web-pod",
+        tail=500,
+    )
+    
+@patch("app.services.llm_service.get_pods")
+def test_execute_tool_rejects_non_string_namespace(mock_get_pods):
+    result = execute_tool(
+        "get_pods",
+        {"namespace": 123},
+    )
+
+    assert result["ok"] is False
+    mock_get_pods.assert_not_called()
+    
+@patch("app.services.llm_service.get_events")
+def test_execute_tool_rejects_non_string_events_namespace(mock_get_events):
+    result = execute_tool(
+        "get_events",
+        {"namespace": 123},
+    )
+
+    assert result["ok"] is False
+    mock_get_events.assert_not_called()

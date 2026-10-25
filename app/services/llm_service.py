@@ -194,22 +194,24 @@ TOOL_SCHEMAS = [
     },
 ]
 
-
 def execute_tool(name: str, arguments: dict) -> dict:
     """Yalnızca kayıtlı araçları ve izin verilen parametreleri çalıştırır."""
 
+    # 1. Araç kayıtlı mı?
     if name not in TOOL_REGISTRY:
         return {
             "ok": False,
             "error": f"İzin verilmeyen araç: {name}",
         }
 
+    # 2. Argümanlar sözlük biçiminde mi?
     if not isinstance(arguments, dict):
         return {
             "ok": False,
             "error": "Araç argümanları sözlük biçiminde olmalı.",
         }
 
+    # 3. Her aracın kullanabileceği parametreleri sınırla.
     allowed_arguments = {
         "get_project_info": set(),
         "get_pods": {"namespace"},
@@ -224,26 +226,48 @@ def execute_tool(name: str, arguments: dict) -> dict:
         },
     }
 
+    # 4. İzin verilmeyen parametreleri reddet.
     if set(arguments) - allowed_arguments[name]:
         return {
             "ok": False,
             "error": "İzin verilmeyen araç parametresi.",
         }
 
+    # 5. Proje bilgisi aracını çalıştır.
     if name == "get_project_info":
         return get_project_info()
 
-    if name == "get_pods":
-        return get_pods(**arguments)
+    # 6. Kubernetes pod ve event araçları.
+    if name in {"get_pods", "get_events"}:
+        namespace = arguments.get("namespace", "default")
 
-    if name == "get_events":
-        return get_events(**arguments)
-
-    if name == "get_pod_logs":
-        if not arguments.get("pod_name"):
+        if not isinstance(namespace, str) or not namespace.strip():
             return {
                 "ok": False,
-                "error": "pod_name parametresi gerekli.",
+                "error": "namespace parametresi geçerli bir metin olmalıdır.",
+            }
+
+        if name == "get_pods":
+            return get_pods(**arguments)
+
+        return get_events(**arguments)
+
+    # 7. Kubernetes pod loglarını getir.
+    if name == "get_pod_logs":
+        pod_name = arguments.get("pod_name")
+
+        if not isinstance(pod_name, str) or not pod_name.strip():
+            return {
+                "ok": False,
+                "error": "pod_name parametresi gerekli ve geçerli olmalıdır.",
+            }
+
+        namespace = arguments.get("namespace", "default")
+
+        if not isinstance(namespace, str) or not namespace.strip():
+            return {
+                "ok": False,
+                "error": "namespace parametresi geçerli bir metin olmalıdır.",
             }
 
         tail = arguments.get("tail", 100)
@@ -262,6 +286,7 @@ def execute_tool(name: str, arguments: dict) -> dict:
 
         return get_pod_logs(**arguments)
 
+    # 8. RAG bilgi tabanında arama yap.
     if name == "search_knowledge_base":
         query = arguments.get("query", "")
 
@@ -276,14 +301,15 @@ def execute_tool(name: str, arguments: dict) -> dict:
             "evidence": search_knowledge_base(query),
         }
 
+    # 9. CI/CD workflow sonucunu analiz et.
     if name == "analyze_workflow_run":
         return analyze_workflow_run(**arguments)
 
+    # 10. Hiçbir araçla eşleşmezse hata döndür.
     return {
         "ok": False,
         "error": "Araç desteklenmiyor.",
     }
-
 
 TECHNICAL_KEYWORDS = (
     "kubernetes",
