@@ -189,3 +189,13 @@ def test_execute_tool_rejects_non_string_events_namespace(mock_get_events):
 
     assert result["ok"] is False
     mock_get_events.assert_not_called()
+    
+@patch("app.services.llm_service.get_pod_logs")
+def test_execute_tool_rejects_non_string_pod_name(mock_get_logs):
+    result = execute_tool(
+        "get_pod_logs",
+        {"pod_name": 123},
+    )
+
+    assert result["ok"] is False
+    mock_get_logs.assert_not_called()   
